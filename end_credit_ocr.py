@@ -1,6 +1,8 @@
 import os
 import csv
 import glob
+import re
+import shutil
 from paddleocr import PaddleOCR
 
 # 配置路径
@@ -11,6 +13,19 @@ output_csv = r"ocr_result.csv"
 warning_csv = r"ocr_warning.csv"
 warning_count_txt = r"ocr_warning_stats.txt"
     
+
+
+# 用正则表达式尝试模糊匹配ocr识别错误
+fuzzy_regex = [
+    r'[初级认人][知矢幸拳载体]', #初级认知载体
+    r'[中][记录]', #中级作战记录
+    r'[初][记录]', #初级作战记录
+    r'[重][具]', #重型强固模具
+    r'[器][装置]', #武器检查装置
+    r'[单元]', #武器检查单元 #TODO: 可能太宽泛
+]
+
+
 
 
 def load_white_list(filepath):
@@ -52,23 +67,24 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
         # 从结果中提取rec_texts
         for res in result:
             rec_texts.extend(res['rec_texts'])
-        
-        # 应用替换规则，修正OCR识别错误
-        corrected_texts = []
-        for text in rec_texts:
-            if replace_rules:
-                corrected_text = apply_replace_rules(text, replace_rules)
-            else:
-                corrected_text = text
-            corrected_texts.append(corrected_text)
+
         
         # 提取白名单匹配项
         matched_items = []
-        for text in corrected_texts:
-            for item in white_list:
-                if item == text:
-                    matched_items.append(item)
+        for text in rec_texts:
+            white_list_found = False
+            for white_item in white_list:
+                if white_item == text:
+                    matched_items.append(white_item)
+                    white_list_found = True
                     break
+
+            # 如果不在白名单中，尝试模糊匹配
+            if not white_list_found:
+                for reg in fuzzy_regex:
+                    if re.search(reg, text):
+                        matched_items.append(text)
+                        break
         
         # 提取折扣比例（包含%的文字）
         discounts = []
@@ -88,6 +104,10 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
             filename = os.path.splitext(os.path.basename(image_path))[0]
             for idx, res in enumerate(result):
                 res.save_to_json(output_dir)
+            
+            # 拷贝原始图片到问题图片文件夹
+            dest_image_path = os.path.join(output_dir, os.path.basename(image_path))
+            shutil.copy(image_path, dest_image_path)
         
         return matched_items, discounts, warning
     except Exception as e:
@@ -129,7 +149,7 @@ def main():
     # 初始化OCR
     ocr = PaddleOCR(
         use_doc_orientation_classify=False,
-        use_doc_unwarping = True,
+        use_doc_unwarping = False,
         # device="gpu",
         use_textline_orientation=False,
         engine="transformers",

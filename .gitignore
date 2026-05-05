@@ -1,6 +1,7 @@
 信用商店/
 问题图片/
 output/
+extra/
 ocr_result.csv
 ocr_warning_stats.txt
 ocr_warning.csv
