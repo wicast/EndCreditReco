@@ -6,7 +6,7 @@ import shutil
 from paddleocr import PaddleOCR
 
 # 配置路径
-image_folder = r"extra"
+image_folder = r"信用商店"
 white_list_path = r"target.txt"
 replace_rules_path = r"replace.txt"
 output_csv = r"ocr_result.csv"
@@ -17,12 +17,13 @@ warning_count_txt = r"ocr_warning_stats.txt"
 
 # 用正则表达式尝试模糊匹配ocr识别错误
 fuzzy_regex = [
-    r'[初级认人][知矢幸拳载体]', #初级认知载体
-    r'[中][记录]', #中级作战记录
-    r'[初][记录]', #初级作战记录
-    r'[重][具]', #重型强固模具
-    r'[器][装置]', #武器检查装置
-    r'[单元]', #武器检查单元 #TODO: 可能太宽泛
+    (r'[衫韧初级].*[知认人载体]', '初级认知载体'),
+    (r'中.*[记录]', '中级作战记录'),
+    (r'[衫韧初级].*[记录]', '初级作战记录'),
+    (r'[重型].*[具]', '重型强固模具'),
+    (r'[武器检查试赋].*[装置]', '武器检查装置'),
+    (r'[武器检查试赋].*[单元]', '武器检查单元'),
+    (r'[圆盘].*[目组]', '协议圆盘组'),
 ]
 
 
@@ -61,36 +62,78 @@ def apply_replace_rules(text, replace_rules):
 def process_image(ocr, image_path, white_list, replace_rules=None):
     """处理单张图片，返回匹配的白名单文字和折扣"""
     try:
+        from PIL import Image
+        
+        # 获取图片高度
+        img = Image.open(image_path)
+        img_height = img.height
+        img.close()
+        
         result = ocr.predict(image_path)
         rec_texts = []
+        rec_boxes = []
         
-        # 从结果中提取rec_texts
+        # 从结果中提取rec_texts和rec_boxes
         for res in result:
             rec_texts.extend(res['rec_texts'])
-
+            rec_boxes.extend(res['rec_boxes'])
         
-        # 提取白名单匹配项
+        # 提取白名单匹配项及其位置信息
         matched_items = []
-        for text in rec_texts:
+        matched_boxes = []
+        for idx, text in enumerate(rec_texts):
             white_list_found = False
             for white_item in white_list:
                 if white_item == text:
                     matched_items.append(white_item)
+                    matched_boxes.append(rec_boxes[idx])
                     white_list_found = True
                     break
 
             # 如果不在白名单中，尝试模糊匹配
             if not white_list_found:
-                for reg in fuzzy_regex:
+                for reg, correct_name in fuzzy_regex:
                     if re.search(reg, text):
-                        matched_items.append(text)
+                        matched_items.append(correct_name)
+                        matched_boxes.append(rec_boxes[idx])
                         break
         
-        # 提取折扣比例（包含%的文字）
+        # 提取折扣比例及其位置信息
         discounts = []
-        for text in rec_texts:
+        discount_boxes = []
+        for idx, text in enumerate(rec_texts):
             if '%' in text:
                 discounts.append(text)
+                discount_boxes.append(rec_boxes[idx])
+        
+        # 根据空间位置匹配折扣到物品
+        # 折扣应该在物品的右上方，且不超过图片高度40%的距离
+        item_discounts = []
+        for item_box in matched_boxes:
+            item_x_center = (item_box[0] + item_box[2]) / 2
+            item_y_center = (item_box[1] + item_box[3]) / 2
+            
+            best_discount = "0"
+            best_score = float('inf')
+            max_up_distance = img_height * 0.4
+            
+            for discount, disc_box in zip(discounts, discount_boxes):
+                disc_x_center = (disc_box[0] + disc_box[2]) / 2
+                disc_y_center = (disc_box[1] + disc_box[3]) / 2
+                
+                # 计算向上距离
+                up_distance = item_y_center - disc_y_center
+                
+                # 折扣应该在物品右上方，且向上距离不超过图片高度40%
+                # x更大（偏右），y更小（偏上）
+                if disc_x_center > item_x_center and disc_y_center < item_y_center and up_distance <= max_up_distance:
+                    # 计算距离，越近越好
+                    score = abs(disc_x_center - item_x_center) + abs(disc_y_center - item_y_center)
+                    if score < best_score:
+                        best_score = score
+                        best_discount = discount
+            
+            item_discounts.append(best_discount)
         
         # 检查matched_items数量是否为10
         warning = ""
@@ -109,7 +152,7 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
             dest_image_path = os.path.join(output_dir, os.path.basename(image_path))
             shutil.copy(image_path, dest_image_path)
         
-        return matched_items, discounts, warning
+        return matched_items, item_discounts, warning
     except Exception as e:
         print(f"处理图片 {image_path} 时出错: {e}")
         return [], [], ""
@@ -172,17 +215,16 @@ def main():
     file_count = 0
     for image_path in image_files:
         print(f"正在处理: {os.path.basename(image_path)}, 已处理 {file_count} 张图片")
-        matched_items, discounts, warning = process_image(ocr, image_path, white_list, replace_rules)
+        matched_items, item_discounts, warning = process_image(ocr, image_path, white_list, replace_rules)
         if warning:
             warning_count += 1
         
         if matched_items:
-            matched_results = match_items_with_discounts(matched_items, discounts)
-            for result in matched_results:
+            for item, discount in zip(matched_items, item_discounts):
                 result_dict = {
                     "filename": os.path.basename(image_path),
-                    "item": result["item"],
-                    "discount": result["discount"]
+                    "item": item,
+                    "discount": discount
                 }
                 if warning:
                     result_dict["warning"] = warning
