@@ -6,7 +6,7 @@ current_file = None
 target_in_current = False
 
 target_item = '武库配额'
-target_item = '嵌晶玉'
+# target_item = '嵌晶玉'
 # target_item = '中级作战记录'
 # target_item = '折金票'
 

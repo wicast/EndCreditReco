@@ -1,0 +1,1 @@
+https://github.com/madSUNitist/endfield-credit-store-rect-detect

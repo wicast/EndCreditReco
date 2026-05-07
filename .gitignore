@@ -5,3 +5,5 @@ extra/
 ocr_result.csv
 ocr_warning_stats.txt
 ocr_warning.csv
+runs/
+yolo26n.pt
