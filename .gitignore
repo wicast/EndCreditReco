@@ -12,3 +12,4 @@ runs/
 yolo26n.pt
 yolo_pred/
 end_credit_yolo_dataset/
+EndCreditReco.egg-info/

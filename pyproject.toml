@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "EndCreditReco"
+version = "0.1.0"
+description = "End Credit Recognition Project"
+requires-python = ">=3.10"
+dependencies = [
+    "torch==2.10.0+cu130",
+    "torchvision",
+    "paddleocr",
+    "transformers"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["runs", "yolo", "信用商店", "问题图片", "extra", "third", "信用商店2", "maa_yolo", "yolo_pred", "test_output", "end_credit_yolo_dataset"]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[tool.uv]
+environments = ["sys_platform == 'linux'", "sys_platform == 'win32'"]
