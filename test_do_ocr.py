@@ -21,5 +21,5 @@ ocr = PaddleOCR(
 result = ocr.predict("./extra/a525658c-1b39-4188-a457-3e294914c6e1.png")
 for res in result:
     res.print()
-    res.save_to_img("output")
-    res.save_to_json("output")
+    res.save_to_img("test_output")
+    res.save_to_json("test_output")

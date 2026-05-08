@@ -64,7 +64,7 @@ def detect_quads(image_path,
     Detect quadrilateral borders using rotated rectangle directly.
     Applies overlap removal (keeping larger rectangle).
     """
-    img = cv2.imread(image_path)
+    img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Cannot read image")
 
@@ -143,7 +143,7 @@ def detect_quads(image_path,
 
 
 if __name__ == "__main__":
-    test_dir = "test_img"
+    test_dir = "信用商店2"
     for file in os.listdir(test_dir):
         file_path = os.path.join(test_dir, file)
         if not os.path.isfile(file_path):
@@ -151,22 +151,22 @@ if __name__ == "__main__":
         print(f"\n=== Processing: {file} ===")
         try:            
             # 物品本体
-            # quads, output = detect_quads(file_path,
-            #                                 min_area_ratio=0.005,
-            #                                 max_area_ratio=0.06,
-            #                                 aspect_ratio_range=(1.0, 1.6),
-            #                                 angle_range=(0, 20),
-            #                                 solidity_threshold=0.0, 
-            #                                 debug=True)
-            
-            # 立即刷新
             quads, output = detect_quads(file_path,
-                                            min_area_ratio=0.001,
-                                            max_area_ratio=0.006,
-                                            aspect_ratio_range=(3, 10),
-                                            angle_range=(0, 5),
+                                            min_area_ratio=0.005,
+                                            max_area_ratio=0.06,
+                                            aspect_ratio_range=(1.0, 1.6),
+                                            angle_range=(0, 20),
                                             solidity_threshold=0.0, 
                                             debug=True)
+            
+            # 立即刷新
+            # quads, output = detect_quads(file_path,
+            #                                 min_area_ratio=0.001,
+            #                                 max_area_ratio=0.006,
+            #                                 aspect_ratio_range=(3, 10),
+            #                                 angle_range=(0, 5),
+            #                                 solidity_threshold=0.0, 
+            #                                 debug=True)
             
             resize_display(output, max_width=1000, max_height=800, window_name=f"Quads - {file}")
         except Exception as e:

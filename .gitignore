@@ -1,9 +1,14 @@
 信用商店/
+信用商店2/
 问题图片/
-output/
+test_output/
 extra/
 ocr_result.csv
 ocr_warning_stats.txt
 ocr_warning.csv
+
+# yolo 相关文件
 runs/
 yolo26n.pt
+yolo_pred/
+end_credit_yolo_dataset/

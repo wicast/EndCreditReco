@@ -6,7 +6,7 @@ import shutil
 from paddleocr import PaddleOCR
 
 # 配置路径
-image_folder = r"信用商店"
+image_folder = r"extra"
 white_list_path = r"target.txt"
 replace_rules_path = r"replace.txt"
 output_csv = r"ocr_result.csv"
