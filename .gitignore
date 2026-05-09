@@ -1,3 +1,12 @@
+# yolo 相关文件
+runs/
+yolo26n.pt
+yolo_pred/
+end_credit_yolo_dataset/
+EndCreditReco.egg-info/
+shop_batch_result.json
+file_date_detect.py
+
 信用商店/
 信用商店2/
 问题图片/
@@ -8,11 +17,5 @@ ocr_warning_stats.txt
 ocr_warning.csv
 
 goods/
-
-# yolo 相关文件
-runs/
-yolo26n.pt
-yolo_pred/
-end_credit_yolo_dataset/
-EndCreditReco.egg-info/
-shop_batch_result.json
+__pycache__/
+问卷_问卷.csv
