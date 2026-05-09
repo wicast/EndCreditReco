@@ -1,12 +1,12 @@
-# t = "衫韧竹战战录"
+t = "及人矢口戈体"
 
-# reg = r'[衫韧初级].*[记录]'
+reg = r'[衫韧初级矢口知认人].*[知认人载体]'
 
-# import re
-# print(re.search(reg, t))
-# print(re.findall(reg, t))
+import re
+print(re.search(reg, t))
+print(re.findall(reg, t))
 
 
-import torch
+# import torch
 
-print(torch.cuda.is_available())
+# print(torch.cuda.is_available())

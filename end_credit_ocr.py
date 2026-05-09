@@ -4,20 +4,21 @@ import glob
 import re
 import shutil
 from paddleocr import PaddleOCR
+from rapidfuzz import fuzz, process
 
 # 配置路径
-image_folder = r"extra"
+image_folder = r"信用商店2"
 white_list_path = r"target.txt"
 replace_rules_path = r"replace.txt"
 output_csv = r"ocr_result.csv"
 warning_csv = r"ocr_warning.csv"
 warning_count_txt = r"ocr_warning_stats.txt"
-    
 
+clean_warning = True
 
 # 用正则表达式尝试模糊匹配ocr识别错误
 fuzzy_regex = [
-    (r'[衫韧初级].*[知认人载体]', '初级认知载体'),
+    (r'[衫韧初级矢口知认人].*[知认人载体]', '初级认知载体'),
     (r'中.*[记录]', '中级作战记录'),
     (r'[衫韧初级].*[记录]', '初级作战记录'),
     (r'[重型].*[具]', '重型强固模具'),
@@ -26,7 +27,8 @@ fuzzy_regex = [
     (r'[圆盘].*[目组]', '协议圆盘组'),
 ]
 
-
+# 模糊匹配的候选名称列表（将从 target.txt 加载）
+fuzzy_candidates = []
 
 
 def load_white_list(filepath):
@@ -92,11 +94,23 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
 
             # 如果不在白名单中，尝试模糊匹配
             if not white_list_found:
+                fuzzy_found = False
+                # 先尝试正则表达式匹配
                 for reg, correct_name in fuzzy_regex:
                     if re.search(reg, text):
                         matched_items.append(correct_name)
                         matched_boxes.append(rec_boxes[idx])
+                        fuzzy_found = True
                         break
+                
+                # 如果正则匹配失败，再尝试 rapidfuzz 相似度匹配
+                if not fuzzy_found:
+                    m = process.extractOne(text, fuzzy_candidates, scorer=fuzz.ratio)
+                    if m:
+                        best_match, score, _ = m
+                        if score >= 68.0:
+                            matched_items.append(best_match)
+                            matched_boxes.append(rec_boxes[idx])
         
         # 提取折扣比例及其位置信息
         discounts = []
@@ -141,16 +155,29 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
             warning = f"警告：matched_items数量为 {len(matched_items)}，预期为10"
             print(warning)
             
-            # 将res保存为JSON到问题图片文件夹
+            # 将识别结果保存为JSON到问题图片文件夹
             output_dir = "问题图片"
             os.makedirs(output_dir, exist_ok=True)
             filename = os.path.splitext(os.path.basename(image_path))[0]
-            for idx, res in enumerate(result):
-                res.save_to_json(output_dir)
             
-            # 拷贝原始图片到问题图片文件夹
+            # 构建输出JSON内容
+            output_data = {
+                "matched_items": matched_items,
+                "rec_texts": rec_texts,
+                "item_count": len(matched_items)
+            }
+            
+            # 保存JSON文件
+            json_path = os.path.join(output_dir, f"{filename}_result.json")
+            import json
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+            
+            # 使用软连接替代拷贝图片
             dest_image_path = os.path.join(output_dir, os.path.basename(image_path))
-            shutil.copy(image_path, dest_image_path)
+            if os.path.exists(dest_image_path) or os.path.islink(dest_image_path):
+                os.remove(dest_image_path)
+            os.symlink(os.path.abspath(image_path), dest_image_path)
         
         return matched_items, item_discounts, warning
     except Exception as e:
@@ -181,9 +208,29 @@ def match_items_with_discounts(matched_items, discounts):
 
 def main():
 
+    # 如果clean_warning为True，清理问题图片文件夹
+    if clean_warning:
+        warning_dir = "问题图片"
+        if os.path.exists(warning_dir):
+            for filename in os.listdir(warning_dir):
+                file_path = os.path.join(warning_dir, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.remove(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"删除文件 {file_path} 时出错: {e}")
+            print("问题图片文件夹已清理")
+
     # 加载白名单
     white_list = load_white_list(white_list_path)
     print(f"白名单加载完成，共 {len(white_list)} 项")
+    
+    # 模糊匹配候选列表也从 target.txt 加载
+    global fuzzy_candidates
+    fuzzy_candidates = white_list.copy()
+    print(f"模糊匹配候选列表加载完成，共 {len(fuzzy_candidates)} 项")
     
     # 加载替换规则
     replace_rules = load_replace_rules(replace_rules_path)
@@ -200,7 +247,7 @@ def main():
     print("OCR引擎初始化完成")
     
     # 获取所有图片文件
-    image_patterns = ["*.jpg", "*.png", "*.jpeg"]
+    image_patterns = ["*.jpg", "*.png", "*.jpeg", "*.jxr"]
     image_files = []
     for pattern in image_patterns:
         image_files.extend(glob.glob(os.path.join(image_folder, pattern)))

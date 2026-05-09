@@ -12,12 +12,20 @@ dependencies = [
     "torchvision",
     "paddleocr",
     "transformers",
-    "ultralytics"
+    "ultralytics",
+    "opencv-python>=4.13.0.92",
+    "rapidfuzz>=3.14.5",
+    "paddlepaddle-gpu",
+    "exifread>=3.5.1",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 exclude = ["runs", "yolo", "信用商店", "问题图片", "extra", "third", "信用商店2", "maa_yolo", "yolo_pred", "test_output", "end_credit_yolo_dataset"]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
