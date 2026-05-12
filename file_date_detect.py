@@ -3,7 +3,7 @@ import io
 import re
 import contextlib
 import exifread
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 
@@ -78,46 +78,56 @@ def get_file_creation_time(file_path: str) -> Optional[datetime]:
         return None
 
 
-def load_csv_submission_times(csv_path: str) -> dict:
+def load_csv_submission_times(csv_path: str) -> Tuple[dict, dict]:
     """
-    从问卷CSV文件中加载提交时间，构建文件名到提交时间的映射
+    从问卷CSV文件中加载提交时间
 
     :param csv_path: CSV文件路径
-    :return: 字典，键为文件名，值为提交时间datetime对象
+    :return: (文件名到时间的字典, (row, col)到时间的字典)
     """
     filename_to_time = {}
+    rowcol_to_time = {}
+    col_mapping = {0: 7, 1: 5, 2: 4, 3: 3, 4: 6}
     if not os.path.exists(csv_path):
-        return filename_to_time
+        return filename_to_time, rowcol_to_time
 
     try:
         import csv as csv_module
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv_module.reader(f)
             next(reader, None)
-            for row in reader:
+            for row_idx, row in enumerate(reader):
                 if len(row) >= 3:
                     submission_time_str = row[2].strip()
                     if submission_time_str:
                         try:
                             submission_time = datetime.strptime(submission_time_str, '%Y/%m/%d')
-                            for col in range(4, min(len(row), 10)):
-                                filename = row[col].strip()
-                                if filename and filename not in filename_to_time:
-                                    filename_to_time[filename] = submission_time
+                            submission_time = submission_time + timedelta(hours=4)
+                            csv_row_num = row_idx + 3
+                            submission_id = row_idx + 1
+                            for img_col, csv_col_idx in col_mapping.items():
+                                if csv_col_idx < len(row):
+                                    filename = row[csv_col_idx].strip()
+                                    if filename:
+                                        if filename not in filename_to_time:
+                                            filename_to_time[filename] = submission_time
+                                        rowcol_to_time[(csv_row_num, img_col)] = submission_time
+                                        rowcol_to_time[(submission_id, img_col)] = submission_time
                         except ValueError:
                             continue
     except Exception:
         pass
 
-    return filename_to_time
+    return filename_to_time, rowcol_to_time
 
 
-def get_image_datetime(image_path: str, csv_submission_times: dict = None) -> Tuple[Optional[datetime], str]:
+def get_image_datetime(image_path: str, csv_submission_times: dict = None, rowcol_to_time: dict = None) -> Tuple[Optional[datetime], str]:
     """
     获取图片的时间，优先使用拍摄时间，其次使用文件名解析时间，再次使用CSV提交时间，最后使用文件创建时间
 
     :param image_path: 图片文件路径
     :param csv_submission_times: 可选的字典，文件名到提交时间的映射
+    :param rowcol_to_time: 可选的字典，(row, col)到提交时间的映射
     :return: (datetime对象, 时间来源描述)
     """
     if not os.path.exists(image_path):
@@ -136,15 +146,27 @@ def get_image_datetime(image_path: str, csv_submission_times: dict = None) -> Tu
         return filename_time, '文件名解析时间'
 
     # 使用CSV提交时间作为备选
-    if csv_submission_times and filename in csv_submission_times:
-        csv_time = csv_submission_times[filename]
-        if csv_time:
-            return csv_time, 'CSV提交时间'
+    # 优先用row/col精确匹配
+    if rowcol_to_time:
+        match = re.search(r'_row(\d+)_col(\d+)', filename)
+        if match:
+            row_num = int(match.group(1))
+            col_num = int(match.group(2))
+            if (row_num, col_num) in rowcol_to_time:
+                return rowcol_to_time[(row_num, col_num)], 'CSV提交时间'
 
-    # 获取文件创建时间作为最后备选
-    file_time = get_file_creation_time(image_path)
-    if file_time:
-        return file_time, '文件创建时间'
+    # 备选：文件名匹配
+    if csv_submission_times:
+        if filename in csv_submission_times:
+            csv_time = csv_submission_times[filename]
+            if csv_time:
+                return csv_time, 'CSV提交时间'
+        else:
+            base_filename = re.sub(r'_row\d+_col\d+', '', filename)
+            if base_filename in csv_submission_times:
+                csv_time = csv_submission_times[base_filename]
+                if csv_time:
+                    return csv_time, 'CSV提交时间'
 
     return None, '无法获取时间'
 
@@ -298,10 +320,10 @@ def main():
         print(f'错误: 路径不存在 - {target_path}')
         return
     
-    csv_submission_times = load_csv_submission_times(args.csv) if args.csv else {}
+    csv_submission_times, rowcol_to_time = load_csv_submission_times(args.csv) if args.csv else ({}, {})
     
     if os.path.isfile(target_path):
-        dt, source = get_image_datetime(target_path, csv_submission_times)
+        dt, source = get_image_datetime(target_path, csv_submission_times, rowcol_to_time)
         if dt:
             formatted_time = format_datetime(dt, args.format)
             print(f'{os.path.basename(target_path)}')
@@ -329,7 +351,7 @@ def main():
             writer.writerow(['文件名', '时间', '时间来源'])
             
             for image_file in image_files:
-                dt, source = get_image_datetime(image_file, csv_submission_times)
+                dt, source = get_image_datetime(image_file, csv_submission_times, rowcol_to_time)
                 if dt:
                     formatted_time = format_datetime(dt, args.format)
                     writer.writerow([os.path.basename(image_file), formatted_time, source])

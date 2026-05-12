@@ -5,14 +5,16 @@ import re
 import shutil
 from paddleocr import PaddleOCR
 from rapidfuzz import fuzz, process
+from file_date_detect import get_image_datetime, load_csv_submission_times
 
 # 配置路径
-image_folder = r"信用商店2"
+image_folder = r"downloaded_images1"
 white_list_path = r"target.txt"
 replace_rules_path = r"replace.txt"
 output_csv = r"ocr_result.csv"
 warning_csv = r"ocr_warning.csv"
 warning_count_txt = r"ocr_warning_stats.txt"
+csv_path = r"问卷_问卷.csv"
 
 clean_warning = True
 
@@ -61,24 +63,107 @@ def apply_replace_rules(text, replace_rules):
             text = text.replace(wrong_text, correct_text)
     return text
 
+def extract_extra_info(rec_texts):
+    """从识别文本中提取UID、剩余刷新次数和库存刷新时间"""
+    uid = ""
+    remaining_refresh = ""
+    refresh_hour = ""
+
+    uid_pattern = re.compile(r'U[1I]D[：:]?\s*(\d+)', re.IGNORECASE)
+    remaining_pattern = re.compile(r'剩余次数[：:]\s*(\d+)/(\d+)')
+    countdown_pattern = re.compile(r'库存刷新倒计时[：:]\s*(\d+)小时(\d+)分钟')
+    countdown_hour_chinese_pattern = re.compile(r'库存刷新倒计时[：:]\s*(\d+)时(\d+)分钟')
+    countdown_minutes_only_pattern = re.compile(r'库存刷新倒计时[：:]\s*(\d+)分钟')
+    refresh_exhausted_pattern = re.compile(r'今日刷新次数已用尽', re.IGNORECASE)
+
+    for i, text in enumerate(rec_texts):
+        text = text.strip()
+        
+        if not uid:
+            m = uid_pattern.search(text)
+            if m:
+                uid = m.group(1)
+
+        if not remaining_refresh:
+            m = remaining_pattern.search(text)
+            if m:
+                remaining_refresh = f"{m.group(1)}/{m.group(2)}"
+            elif refresh_exhausted_pattern.search(text):
+                remaining_refresh = "0/4"
+
+        if not refresh_hour:
+            m = countdown_pattern.search(text)
+            if m:
+                refresh_hour = m.group(1)
+            else:
+                m = countdown_hour_chinese_pattern.search(text)
+                if m:
+                    refresh_hour = m.group(1)
+                else:
+                    m = countdown_minutes_only_pattern.search(text)
+                    if m:
+                        refresh_hour = "0"
+
+        if not uid:
+            m = process.extractOne(text, ["UID", "U1D"], scorer=fuzz.ratio, score_cutoff=60)
+            if m:
+                uid_match = re.search(r'(\d{7,})', text)
+                if uid_match:
+                    uid = uid_match.group(1)
+
+        if not remaining_refresh:
+            m = process.extractOne(text, ["剩余次数", "今日刷新次数已用尽"], scorer=fuzz.ratio, score_cutoff=60)
+            if m:
+                if "用尽" in m[0] or "已用" in text:
+                    remaining_refresh = "0/4"
+                else:
+                    remaining_match = re.search(r'(\d+)/(\d+)', text)
+                    if remaining_match:
+                        remaining_refresh = f"{remaining_match.group(1)}/{remaining_match.group(2)}"
+
+        if not refresh_hour:
+            m = process.extractOne(text, ["库存刷新倒计时"], scorer=fuzz.ratio, score_cutoff=60)
+            if m:
+                hour_match = re.search(r'(\d+)小时', text)
+                if not hour_match:
+                    hour_match = re.search(r'(\d+)时', text)
+                if hour_match:
+                    refresh_hour = hour_match.group(1)
+                else:
+                    minutes_match = re.search(r'(\d+)分钟', text)
+                    if minutes_match:
+                        refresh_hour = "0"
+
+        if not refresh_hour and i + 1 < len(rec_texts):
+            combined_text = text + rec_texts[i + 1]
+            m = countdown_pattern.search(combined_text)
+            if m:
+                refresh_hour = m.group(1)
+            else:
+                m = countdown_hour_chinese_pattern.search(combined_text)
+                if m:
+                    refresh_hour = m.group(1)
+
+    return uid, remaining_refresh, refresh_hour
+
 def process_image(ocr, image_path, white_list, replace_rules=None):
-    """处理单张图片，返回匹配的白名单文字和折扣"""
+    """处理单张图片，返回匹配的白名单文字、折扣和额外信息"""
     try:
         from PIL import Image
-        
-        # 获取图片高度
+
         img = Image.open(image_path)
         img_height = img.height
         img.close()
-        
+
         result = ocr.predict(image_path)
         rec_texts = []
         rec_boxes = []
-        
-        # 从结果中提取rec_texts和rec_boxes
+
         for res in result:
             rec_texts.extend(res['rec_texts'])
             rec_boxes.extend(res['rec_boxes'])
+
+        uid, remaining_refresh, refresh_hour = extract_extra_info(rec_texts)
         
         # 提取白名单匹配项及其位置信息
         matched_items = []
@@ -149,10 +234,20 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
             
             item_discounts.append(best_discount)
         
-        # 检查matched_items数量是否为10
+        # 检查matched_items数量是否为10以及额外信息是否完整
         warning = ""
+        missing_fields = []
         if len(matched_items) != 10:
-            warning = f"警告：matched_items数量为 {len(matched_items)}，预期为10"
+            missing_fields.append(f"matched_items数量为 {len(matched_items)}（预期为10）")
+        if not uid:
+            missing_fields.append("缺少UID")
+        if not remaining_refresh:
+            missing_fields.append("缺少剩余刷新次数")
+        if not refresh_hour:
+            missing_fields.append("缺少库存刷新时间")
+        
+        if missing_fields:
+            warning = "警告：" + "；".join(missing_fields)
             print(warning)
             
             # 将识别结果保存为JSON到问题图片文件夹
@@ -164,7 +259,10 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
             output_data = {
                 "matched_items": matched_items,
                 "rec_texts": rec_texts,
-                "item_count": len(matched_items)
+                "item_count": len(matched_items),
+                "uid": uid,
+                "remaining_refresh": remaining_refresh,
+                "refresh_hour": refresh_hour
             }
             
             # 保存JSON文件
@@ -179,10 +277,10 @@ def process_image(ocr, image_path, white_list, replace_rules=None):
                 os.remove(dest_image_path)
             os.symlink(os.path.abspath(image_path), dest_image_path)
         
-        return matched_items, item_discounts, warning
+        return matched_items, item_discounts, warning, uid, remaining_refresh, refresh_hour
     except Exception as e:
         print(f"处理图片 {image_path} 时出错: {e}")
-        return [], [], ""
+        return [], [], "", "", "", ""
 
 def match_items_with_discounts(matched_items, discounts):
     """匹配白名单项和折扣"""
@@ -254,7 +352,11 @@ def main():
     
     # image_files.sort()
     print(f"找到 {len(image_files)} 张图片")
-    
+
+    # 加载CSV提交时间
+    csv_submission_times, rowcol_to_time = load_csv_submission_times(csv_path)
+    print(f"CSV提交时间加载完成，{len(csv_submission_times)} 条文件名映射，{len(rowcol_to_time)} 条row/col映射")
+
     # 处理所有图片并收集结果
     all_results = []
     warning_results = []
@@ -262,16 +364,24 @@ def main():
     file_count = 0
     for image_path in image_files:
         print(f"正在处理: {os.path.basename(image_path)}, 已处理 {file_count} 张图片")
-        matched_items, item_discounts, warning = process_image(ocr, image_path, white_list, replace_rules)
+        matched_items, item_discounts, warning, uid, remaining_refresh, refresh_hour = process_image(ocr, image_path, white_list, replace_rules)
         if warning:
             warning_count += 1
-        
+
+        img_datetime, time_source = get_image_datetime(image_path, csv_submission_times, rowcol_to_time)
+        datetime_str = img_datetime.strftime('%Y-%m-%d %H:%M:%S') if img_datetime else ''
+
         if matched_items:
             for item, discount in zip(matched_items, item_discounts):
                 result_dict = {
                     "filename": os.path.basename(image_path),
                     "item": item,
-                    "discount": discount
+                    "discount": discount,
+                    "datetime": datetime_str,
+                    "time_source": time_source,
+                    "uid": uid,
+                    "remaining_refresh": remaining_refresh,
+                    "refresh_hour": refresh_hour
                 }
                 if warning:
                     result_dict["warning"] = warning
@@ -279,11 +389,15 @@ def main():
                 else:
                     all_results.append(result_dict)
         else:
-            # 如果没有匹配到白名单项，仍记录文件名
             result_dict = {
                 "filename": os.path.basename(image_path),
                 "item": "",
-                "discount": "0"
+                "discount": "0",
+                "datetime": datetime_str,
+                "time_source": time_source,
+                "uid": uid,
+                "remaining_refresh": remaining_refresh,
+                "refresh_hour": refresh_hour
             }
             if warning:
                 result_dict["warning"] = warning
@@ -291,10 +405,9 @@ def main():
             else:
                 all_results.append(result_dict)
         file_count += 1
-    
-    # 写入正常结果CSV
+
     with open(output_csv, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["filename", "item", "discount"])
+        writer = csv.DictWriter(f, fieldnames=["filename", "item", "discount", "datetime", "time_source", "uid", "remaining_refresh", "refresh_hour"])
         writer.writeheader()
         writer.writerows(all_results)
     
@@ -303,7 +416,7 @@ def main():
     # 写入警告结果CSV
     if warning_results:
         with open(warning_csv, 'w', encoding='utf-8-sig', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=["filename", "item", "discount", "warning"])
+            writer = csv.DictWriter(f, fieldnames=["filename", "item", "discount", "datetime", "time_source", "uid", "remaining_refresh", "refresh_hour", "warning"])
             writer.writeheader()
             writer.writerows(warning_results)
         
