@@ -18,7 +18,7 @@ ocr = PaddleOCR(
 #     use_textline_orientation=False,
 #     engine="transformers",
 # ) # 更换 PP-OCRv5_server 模型
-result = ocr.predict("downloaded_images1/1111_row1296_col3.jpg")
+result = ocr.predict("downloaded_images1\\Desktop Screenshot 20260323 - 23124406_row1947_col0.png")
 for res in result:
     res.print()
     res.save_to_img("test_output")

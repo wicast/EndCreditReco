@@ -20,3 +20,6 @@ ocr_warning.csv
 goods/
 __pycache__/
 问卷_问卷.csv
+
+
+*.7z

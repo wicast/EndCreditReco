@@ -8,7 +8,7 @@ from rapidfuzz import fuzz, process
 from file_date_detect import get_image_datetime, load_csv_submission_times
 
 # 配置路径
-image_folder = r"downloaded_images1"
+image_folder = r"信用商店"
 white_list_path = r"target.txt"
 replace_rules_path = r"replace.txt"
 output_csv = r"ocr_result.csv"
